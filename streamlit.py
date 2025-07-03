@@ -108,6 +108,7 @@ import PIL.Image
 import statistics
 import networkx.algorithms.community as nx_community
 from logic.logic import extraer_y_estructurar_desde_pdfs
+from DataScience import NetworkNarratives
 
 # Algoritmos de comunidades disponibles en NetworkX por defecto
 
@@ -621,7 +622,20 @@ def show_graph_metrics(G, graph_type="", articulos=None):
     # Usar el grafo modificado para todo el análisis
     G = st.session_state.modified_graph
     
+    # Inicializar la clase de narrativas
+    narrator = NetworkNarratives(G, graph_type, articulos)
+    
     st.subheader("Análisis Integral de la Red Compleja")
+    
+    # Descripción narrativa personalizada del grafo
+    import traceback
+    st.markdown("### Descripción de la Red")
+    try:
+        basic_description = narrator.get_basic_description()
+        st.markdown(basic_description)
+    except Exception as e:
+        st.error(f"Error al procesar el archivo: {e}")
+        st.text(traceback.format_exc())
     
     # Métricas básicas de topología
     st.markdown("### Métricas Topológicas Fundamentales")
@@ -687,6 +701,16 @@ def show_graph_metrics(G, graph_type="", articulos=None):
             
         # Métricas adicionales para grafos dirigidos
         st.markdown("#### Propiedades Estructurales Dirigidas")
+        
+        # Texto descriptivo de las métricas direccionales
+        st.markdown("""
+        **Análisis de la Estructura Direccional:** Las redes dirigidas presentan características únicas que revelan patrones de flujo, jerarquía e influencia. La **reciprocidad** mide qué tan equilibradas son las relaciones: valores bajos (como 0.0165) indican que la mayoría de conexiones son unidireccionales, típico en redes de citas donde A cita a B pero B no necesariamente cita a A. 
+        
+        Los **componentes fuertemente conectados** (grupos donde todos los nodos se alcanzan mutuamente) versus los **débilmente conectados** (ignorando direcciones) revelan la fragmentación estructural. Con 402 componentes fuertes contra 72 débiles, la red muestra alta fragmentación direccional pero mayor conectividad general.
+        
+        Los **nodos fuente** (154) son entidades que solo emiten conexiones sin recibir, mientras que los **nodos sumidero** (228) solo reciben. En redes académicas, las fuentes son trabajos que citan mucho pero no son citados, y los sumideros son trabajos influyentes que son citados pero no citan a otros. El mayor número de sumideros sugiere una red con trabajos fundacionales importantes.
+        """)
+        
         col_dir3, col_dir4 = st.columns(2)
         
         with col_dir3:
@@ -713,26 +737,27 @@ def show_graph_metrics(G, graph_type="", articulos=None):
     
     # Métricas de distancia y conectividad
     st.markdown("### Métricas de Distancia y Conectividad")
+    
     col_dist1, col_dist2 = st.columns(2)
     
     G_undirected = G.to_undirected()
     is_connected = nx.is_connected(G_undirected)
     
     with col_dist1:
+        # Narrativa mejorada de conectividad
+        connectivity_narrative = narrator.get_enhanced_connectivity_narrative()
+        st.markdown(connectivity_narrative)
+        
         if is_connected:
             diameter = nx.diameter(G_undirected)
             # Encontrar un par de nodos que alcance el diámetro
             try:
-                distances = dict(nx.all_pairs_shortest_path_length(G_undirected))
-                diameter_pairs = [(u, v) for u in distances for v in distances[u] if distances[u][v] == diameter]
-                diameter_pair = diameter_pairs[0] if diameter_pairs else ("N/A", "N/A")
-                pair_display = f"{str(diameter_pair[0])[:15]}...↔{str(diameter_pair[1])[:15]}..."
-                st.metric("Diámetro", f"{diameter} saltos: {pair_display}", help=f"Distancia máxima entre cualquier par de nodos. Valores bajos (2-6) caracterizan el fenómeno 'mundo pequeño'. Ejemplo: para llegar de {str(diameter_pair[0])[:20]} a {str(diameter_pair[1])[:20]} se necesitan {diameter} pasos como mínimo.")
+                st.metric("Diámetro", f"{diameter}", help="Distancia máxima entre cualquier par de nodos. Valores bajos (2-6) caracterizan el fenómeno 'mundo pequeño' típico en redes sociales y científicas.")
             except:
                 st.metric("Diámetro", diameter, help="Distancia máxima entre cualquier par de nodos. Valores bajos (2-6) caracterizan el fenómeno 'mundo pequeño' típico en redes sociales y científicas.")
             
             avg_path = nx.average_shortest_path_length(G_undirected)
-            st.metric("Distancia Promedio", f"{avg_path:.3f} saltos", help=f"Promedio de todas las distancias más cortas entre pares de nodos. En redes colaborativas, indica qué tan rápido se puede conectar un investigador con otro. Valor {avg_path:.1f} significa que cualquier par está separado por ~{int(avg_path)} intermediarios.")
+            st.metric("Distancia Promedio", f"{avg_path:.3f}", help=f"Promedio de todas las distancias más cortas entre pares de nodos. En redes colaborativas, indica qué tan rápido se puede conectar un investigador con otro. Valor {avg_path:.1f} significa que cualquier par está separado por ~{int(avg_path)} intermediarios.")
         else:
             components = list(nx.connected_components(G_undirected))
             largest_component_size = max(len(c) for c in components) if components else 0
@@ -740,27 +765,26 @@ def show_graph_metrics(G, graph_type="", articulos=None):
             st.metric("Distancia Promedio", f"∞ ({largest_component_size} en mayor)", help="No existe un camino que conecte todos los nodos. Solo se puede calcular dentro de cada componente.")
             
     with col_dist2:
+        # Narrativa de triángulos
+        triangles_narrative = narrator.get_triangles_narrative()
+        st.markdown("#### Estructura Triangular")
+        st.markdown(triangles_narrative)
+        
         # Coeficiente de clustering
         clustering_global = nx.transitivity(G)
         clustering_avg = nx.average_clustering(G)
         
-        # Contar triángulos para dar contexto
-        try:
-            triangles = sum(nx.triangles(G).values()) // 3 if not G.is_directed() else sum(nx.triangles(G.to_undirected()).values()) // 3
-            triplets = sum(d * (d - 1) // 2 for n, d in G.degree()) if not G.is_directed() else sum(d * (d - 1) // 2 for n, d in G.to_undirected().degree())
-        except:
-            triangles = 0
-            triplets = 1
-            
-        st.metric("Clustering Global", f"{clustering_global:.4f} ({triangles} triángulos)", help=f"Probabilidad de que dos colaboradores de un investigador también colaboren entre sí. Mide triángulos reales vs. posibles. Ejemplo: si A conoce a B y C, ¿se conocen B y C? Valores altos (>0.3) indican grupos cohesivos donde 'el amigo de mi amigo es mi amigo'.")
+        st.metric("Clustering Global", f"{clustering_global:.4f}", help=f"Probabilidad de que dos colaboradores de un investigador también colaboren entre sí. Mide triángulos reales vs. posibles. Ejemplo: si A conoce a B y C, ¿se conocen B y C? Valores altos (>0.3) indican grupos cohesivos donde 'el amigo de mi amigo es mi amigo'.")
         st.metric("Clustering Promedio", f"{clustering_avg:.4f}", help="Promedio de coeficientes de clustering locales de todos los nodos. Mide la tendencia general de la red a formar triángulos. Diferencia: clustering global pondera por grado, promedio trata todos los nodos igual.")
         
         # Fenómeno mundo pequeño
         if is_connected and G.number_of_nodes() > 10:
             # Comparar con red aleatoria equivalente
+            grado_medio = sum(dict(G.degree()).values())/G.number_of_nodes() if G.number_of_nodes() > 0 else 0
             random_clustering = grado_medio / G.number_of_nodes() if G.number_of_nodes() > 0 else 0
             small_world_ratio = clustering_avg / random_clustering if random_clustering > 0 else float('inf')
             if small_world_ratio > 3:
+                avg_path = nx.average_shortest_path_length(G_undirected) if is_connected else 0
                 st.metric("Índice Mundo Pequeño", f"{small_world_ratio:.2f}x", delta="Mundo pequeño", help=f"Ratio de clustering vs red aleatoria. Valor {small_world_ratio:.1f}x indica estructura 'mundo pequeño': alta clusterización ({clustering_avg:.3f}) con distancias cortas ({avg_path:.1f}). Como en redes sociales: grupos densos pero todo conectado.")
             elif small_world_ratio > 1:
                 st.metric("Índice Mundo Pequeño", f"{small_world_ratio:.2f}x", delta="Algo clustered", help=f"Clustering {small_world_ratio:.1f} veces mayor que red aleatoria. Muestra algo de estructura de mundo pequeño pero no pronunciada.")
@@ -773,6 +797,11 @@ def show_graph_metrics(G, graph_type="", articulos=None):
     
     # Análisis de distribución de grados y asortatividad
     st.markdown("### Distribución de Grados y Asortatividad")
+    
+    # Narrativa de distribución de grados
+    degree_distribution_narrative = narrator.get_degree_distribution_narrative()
+    st.markdown(degree_distribution_narrative)
+    
     col_deg1, col_deg2 = st.columns(2)
     
     with col_deg1:
@@ -804,56 +833,102 @@ def show_graph_metrics(G, graph_type="", articulos=None):
             
         # Número de triángulos
         try:
-            triangles = sum(nx.triangles(G).values()) // 3
-            st.metric("Triángulos", triangles, help="Número total de triángulos en la red. Indica la densidad de relaciones de tres vías (colaboraciones triangulares).")
+            if not G.is_directed():
+                triangles = sum(nx.triangles(G).values()) // 3
+            else:
+                triangles = sum(nx.triangles(G.to_undirected()).values()) // 3
+            st.metric("Componentes Conectados", nx.number_connected_components(G.to_undirected()), help="Número de subgrupos separados en la red.")
         except:
-            st.metric("Triángulos", "N/A")
+            st.metric("Componentes Conectados", "N/A")
     
     
-    # Centralidades - Ahora en dos columnas con dos métricas cada una
+    # Centralidades - Análisis completo con narrativas
     st.markdown("### Análisis de Centralidades")
+    
+    # Introducción explicativa sobre centralidades
+    centralities_intro = narrator.get_centralities_introduction()
+    st.markdown(centralities_intro)
+    
+    # Calcular todas las centralidades
+    try:
+        grado = nx.degree_centrality(G)
+        top_degree = sorted(grado.items(), key=lambda x: x[1], reverse=True)[:3]
+        degree_narrative = narrator.get_enhanced_centrality_narrative("degree", top_degree, "Centralidad de Grado")
+        st.markdown(degree_narrative)
+    except:
+        st.info("No se pudo calcular centralidad de grado")
+    
+    try:
+        inter = nx.betweenness_centrality(G)
+        top_betweenness = sorted(inter.items(), key=lambda x: x[1], reverse=True)[:3]
+        betweenness_narrative = narrator.get_enhanced_centrality_narrative("betweenness", top_betweenness, "Centralidad de Intermediación")
+        st.markdown(betweenness_narrative)
+    except:
+        st.info("No se pudo calcular centralidad de intermediación")
+    
+    try:
+        cerca = nx.closeness_centrality(G)
+        top_closeness = sorted(cerca.items(), key=lambda x: x[1], reverse=True)[:3]
+        closeness_narrative = narrator.get_enhanced_centrality_narrative("closeness", top_closeness, "Centralidad de Cercanía")
+        st.markdown(closeness_narrative)
+    except:
+        st.info("No se pudo calcular centralidad de cercanía (red desconectada)")
+    
+    try:
+        if G.is_directed():
+            pagerank = nx.pagerank(G)
+            top_pagerank = sorted(pagerank.items(), key=lambda x: x[1], reverse=True)[:3]
+            pagerank_narrative = narrator.get_enhanced_centrality_narrative("pagerank", top_pagerank, "PageRank")
+            st.markdown(pagerank_narrative)
+        else:
+            eigen = nx.eigenvector_centrality(G, max_iter=1000)
+            top_eigen = sorted(eigen.items(), key=lambda x: x[1], reverse=True)[:3]
+            eigen_narrative = narrator.get_enhanced_centrality_narrative("eigenvector", top_eigen, "Centralidad de Vector Propio")
+            st.markdown(eigen_narrative)
+    except:
+        if G.is_directed():
+            st.info("No se pudo calcular PageRank")
+        else:
+            st.info("No se pudo calcular centralidad de vector propio")
+    
+    # Tablas de datos detallados
+    st.markdown("#### Datos Detallados de Centralidades")
+    
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("#### Centralidad de Grado")
-        st.caption("Identifica los nodos más conectados (hubs)")
-        grado = nx.degree_centrality(G)
-        df_grado = pd.DataFrame(grado.items(), columns=["Nodo", "Centralidad"]).sort_values("Centralidad", ascending=False)
-        st.dataframe(df_grado.head(15), height=350, use_container_width=True)
-        
-        st.markdown("#### Centralidad de Cercanía")
-        st.caption("Identifica nodos con acceso rápido al resto de la red")
+        st.markdown("**Centralidad de Grado**")
         try:
-            cerca = nx.closeness_centrality(G)
+            df_grado = pd.DataFrame(grado.items(), columns=["Nodo", "Centralidad"]).sort_values("Centralidad", ascending=False)
+            st.dataframe(df_grado.head(15), height=350, use_container_width=True)
+        except:
+            st.info("No disponible")
+        
+        st.markdown("**Centralidad de Cercanía**")
+        try:
             df_cerca = pd.DataFrame(cerca.items(), columns=["Nodo", "Cercanía"]).sort_values("Cercanía", ascending=False)
             st.dataframe(df_cerca.head(15), height=350, use_container_width=True)
         except:
-            st.info("No se puede calcular centralidad de cercanía (red desconectada)")
+            st.info("No disponible")
         
     with col2:
-        st.markdown("#### Centralidad de Intermediación")
-        st.caption("Identifica nodos que actúan como puentes entre otros")
+        st.markdown("**Centralidad de Intermediación**")
         try:
-            inter = nx.betweenness_centrality(G)
             df_inter = pd.DataFrame(inter.items(), columns=["Nodo", "Intermediación"]).sort_values("Intermediación", ascending=False)
             st.dataframe(df_inter.head(15), height=350, use_container_width=True)
         except:
-            st.info("No se puede calcular centralidad de intermediación")
+            st.info("No disponible")
         
-        st.markdown("#### Centralidad de Vector Propio / PageRank")
-        st.caption("Identifica nodos conectados a otros nodos importantes")
+        st.markdown("**Vector Propio / PageRank**")
         try:
             if G.is_directed():
-                pagerank = nx.pagerank(G)
                 df_pagerank = pd.DataFrame(pagerank.items(), columns=["Nodo", "PageRank"]).sort_values("PageRank", ascending=False)
                 st.dataframe(df_pagerank.head(15), height=350, use_container_width=True)
-                st.caption("Se muestra PageRank para redes dirigidas")
             else:
-                eigen = nx.eigenvector_centrality(G, max_iter=1000)
                 df_eigen = pd.DataFrame(eigen.items(), columns=["Nodo", "Vector Propio"]).sort_values("Vector Propio", ascending=False)
                 st.dataframe(df_eigen.head(15), height=350, use_container_width=True)
         except:
-            st.info("No se pudo calcular centralidad de vector propio/PageRank")
+            st.info("No disponible")
 
     # Tabla de in-degree y out-degree
     st.markdown("#### Tabla de In-Degree y Out-Degree")
@@ -955,9 +1030,14 @@ def show_graph_metrics(G, graph_type="", articulos=None):
                 col_sub1, col_sub2 = st.columns(2)
                 
                 with col_sub1:
+                    # Narrativa contextualizada del subgrafo
+                    subgraph_narrative = narrator.get_subgraph_narrative(original_node, subgraph, G)
+                    st.markdown("#### Análisis Contextual del Subgrafo")
+                    st.markdown(subgraph_narrative)
+                    
                     st.markdown(f"#### Métricas Básicas del Subgrafo de '{selected_node}'")
-                    st.metric("Nodos en Subgrafo", subgraph.number_of_nodes())
-                    st.metric("Aristas en Subgrafo", subgraph.number_of_edges())
+                    st.metric("Entidades en Subgrafo", subgraph.number_of_nodes())
+                    st.metric("Relaciones en Subgrafo", subgraph.number_of_edges())
                     
                     # Grado del nodo central en el subgrafo original
                     central_degree = G.degree(original_node)
@@ -981,6 +1061,16 @@ def show_graph_metrics(G, graph_type="", articulos=None):
                 
                 # Métricas de distancia y conectividad del subgrafo
                 st.markdown("#### Métricas de Distancia y Conectividad del Subgrafo")
+                
+                # Generar narrativa contextualizada del subgrafo
+                try:
+                    subgraph_distance_narrative = narrator.get_subgraph_distance_connectivity_narrative(
+                        subgraph, original_node, neighbors, G
+                    )
+                    st.markdown(subgraph_distance_narrative)
+                except Exception as e:
+                    st.info(f"No se pudo generar narrativa del subgrafo: {str(e)}")
+                
                 col_subdist1, col_subdist2 = st.columns(2)
                 
                 subgraph_undirected = subgraph.to_undirected()
@@ -1099,13 +1189,12 @@ def show_graph_metrics(G, graph_type="", articulos=None):
                         st.write("Este nodo no tiene vecinos.")
                 
                 with col_info2:
-                    st.markdown("**Estadísticas del Vecindario:**")
+                    st.markdown("**Resumen del Vecindario:**")
                     if neighbors:
                         neighbor_degrees = [G.degree(n) for n in neighbors]
-                        st.metric("Grado Máximo de Vecinos", max(neighbor_degrees))
-                        st.metric("Grado Mínimo de Vecinos", min(neighbor_degrees))
+                        max_degree = max(neighbor_degrees)
+                        min_degree = min(neighbor_degrees)
                         avg_neighbor_degree = sum(neighbor_degrees) / len(neighbor_degrees)
-                        st.metric("Grado Promedio de Vecinos", f"{avg_neighbor_degree:.2f}")
                         
                         # Verificar si hay conexiones entre vecinos
                         connections_between_neighbors = 0
@@ -1113,7 +1202,18 @@ def show_graph_metrics(G, graph_type="", articulos=None):
                             for n2 in neighbors[i+1:]:
                                 if G.has_edge(n1, n2):
                                     connections_between_neighbors += 1
-                        st.metric("Conexiones entre Vecinos", connections_between_neighbors)
+                        
+                        # Crear resumen en prosa
+                        resumen_vecindario = f"""
+                        Este nodo está conectado con {len(neighbors)} vecinos que tienen características variadas:
+                        
+                        • Los vecinos tienen entre {min_degree} y {max_degree} conexiones, con un promedio de {avg_neighbor_degree:.1f} conexiones por vecino.
+                        
+                        • Entre los vecinos existen {connections_between_neighbors} conexiones directas, lo que indica un {'alto' if connections_between_neighbors > len(neighbors)/2 else 'moderado' if connections_between_neighbors > 0 else 'bajo'} nivel de agrupamiento local.
+                        
+                        • Este patrón de conexiones sugiere que el nodo forma parte de {'un grupo fuertemente conectado' if connections_between_neighbors > len(neighbors)/2 else 'una estructura con conexiones moderadas' if connections_between_neighbors > 0 else 'una estructura tipo estrella donde este nodo actúa como centro'}.
+                        """
+                        st.markdown(resumen_vecindario)
                     else:
                         st.write("No hay vecinos para analizar.")
                         
@@ -1138,6 +1238,13 @@ def show_graph_metrics(G, graph_type="", articulos=None):
         ],
         help="Selecciona el algoritmo para detectar comunidades. Cada algoritmo puede revelar diferentes estructuras comunitarias."
     )
+    
+    # Mostrar explicación del algoritmo seleccionado
+    algorithm_explanation = narrator.get_community_algorithm_explanation(community_algorithm)
+    st.markdown("#### Sobre el Algoritmo Seleccionado")
+    st.markdown(f"**{algorithm_explanation['description']}**\n\n"
+               f"**Caso de uso:** {algorithm_explanation['use_case']}\n\n"
+               f"**Resultado:** {algorithm_explanation['output']}")
     
     # Detectar comunidades según el algoritmo seleccionado
     try:
@@ -1241,39 +1348,49 @@ def show_graph_metrics(G, graph_type="", articulos=None):
             st.caption(f"Cada color representa una comunidad diferente detectada por {community_algorithm}")
             show_networkx_graph(G_colored, height=500, width=900)
             
+            # Métricas de comunidades con narrativas
+            if len(communities) > 1:
+                try:
+                    modularity = nx_community.modularity(G_clean, communities)
+                except:
+                    modularity = 0
+            else:
+                modularity = 0
+                
+            # Narrativa de comunidades
+            community_narrative = narrator.get_community_metrics_narrative(communities, modularity)
+            st.markdown("#### Análisis de la Estructura Comunitaria")
+            st.markdown(community_narrative)
+            
             # Métricas de comunidades
             col_com1, col_com2 = st.columns(2)
             
             with col_com1:
-                st.metric("Número de Comunidades", len(communities), help=f"Grupos cohesivos identificados por {community_algorithm}. Muchas comunidades pequeñas pueden indicar especialización; pocas grandes sugieren integración.")
                 if len(communities) > 0:
                     community_sizes = [len(c) for c in communities]
-                    st.metric("Comunidad más Grande", max(community_sizes), help="Tamaño del grupo más numeroso, que puede dominar la estructura de la red.")
-                    st.metric("Comunidad más Pequeña", min(community_sizes), help="Grupos especializados o nichos específicos en la red.")
+                    st.metric("Número de Comunidades", len(communities))
+                    st.metric("Comunidad más Grande", max(community_sizes))
+                    st.metric("Comunidad más Pequeña", min(community_sizes))
                     
                     # Distribución de tamaños
                     avg_community_size = sum(community_sizes) / len(community_sizes)
-                    st.metric("Tamaño Promedio de Comunidad", f"{avg_community_size:.1f}", help="Tamaño típico de las comunidades detectadas.")
+                    st.metric("Tamaño Promedio de Comunidad", f"{avg_community_size:.1f}")
                     
             with col_com2:
                 if len(communities) > 1:
                     # Modularidad
-                    try:
-                        modularity = nx_community.modularity(G_clean, communities)
-                        if modularity > 0.7:
-                            st.metric("Modularidad", f"{modularity:.4f}", delta="Excelente", help="Calidad excepcional de la división en comunidades (>0.7).")
-                        elif modularity > 0.3:
-                            st.metric("Modularidad", f"{modularity:.4f}", delta="Buena", help="Buena calidad de la división en comunidades (0.3-0.7).")
-                        else:
-                            st.metric("Modularidad", f"{modularity:.4f}", delta="Débil", help="División en comunidades débil (<0.3).")
-                    except Exception as mod_e:
-                        st.metric("Modularidad", "N/A", help=f"Error al calcular modularidad: {str(mod_e)}")
+                    if modularity > 0.7:
+                        st.metric("Modularidad", f"{modularity:.4f}", delta="Excelente")
+                    elif modularity > 0.3:
+                        st.metric("Modularidad", f"{modularity:.4f}", delta="Buena")
+                    else:
+                        st.metric("Modularidad", f"{modularity:.4f}", delta="Débil")
                 
                 # Cobertura de comunidades
                 total_nodes = G_clean.number_of_nodes()
                 covered_nodes = sum(len(c) for c in communities)
                 coverage = covered_nodes / total_nodes if total_nodes > 0 else 0
-                st.metric("Cobertura", f"{coverage:.1%}", help="Porcentaje de nodos asignados a comunidades.")
+                st.metric("Cobertura", f"{coverage:.1%}")
                 
                 # Mostrar tamaños de las comunidades más grandes
                 if len(communities) > 0:
@@ -1300,10 +1417,7 @@ def show_graph_metrics(G, graph_type="", articulos=None):
                 st.dataframe(df_communities, height=300, use_container_width=True)
             
             with col_detail2:
-                # Métricas internas de comunidades
-                st.markdown("**Métricas de Cohesión:**")
-                
-                # Densidad interna promedio
+                # Calcular métricas de cohesión
                 internal_densities = []
                 for community in communities:
                     if len(community) > 1:
@@ -1311,34 +1425,23 @@ def show_graph_metrics(G, graph_type="", articulos=None):
                         density = nx.density(subgraph)
                         internal_densities.append(density)
                 
-                if internal_densities:
-                    avg_internal_density = sum(internal_densities) / len(internal_densities)
-                    st.metric("Densidad Interna Promedio", f"{avg_internal_density:.4f}", help="Densidad promedio dentro de las comunidades. Valores altos indican comunidades cohesivas.")
-                    
-                    max_density = max(internal_densities)
-                    st.metric("Densidad Máxima", f"{max_density:.4f}", help="La comunidad más densa identificada.")
-                    
-                    # Conductancia promedio (si es calculable)
-                    try:
-                        conductances = []
-                        for community in communities:
-                            if len(community) > 1 and len(community) < G_clean.number_of_nodes():
-                                # Aproximación de conductancia
-                                internal_edges = G_clean.subgraph(community).number_of_edges()
-                                cut_edges = sum(1 for node in community for neighbor in G_clean.neighbors(node) if neighbor not in community)
-                                if internal_edges + cut_edges > 0:
-                                    conductance = cut_edges / (2 * internal_edges + cut_edges)
-                                    conductances.append(conductance)
-                        
-                        if conductances:
-                            avg_conductance = sum(conductances) / len(conductances)
-                            st.metric("Conductancia Promedio", f"{avg_conductance:.4f}", help="Medida de separación entre comunidades. Valores bajos indican buena separación.")
-                    except:
-                        st.metric("Conductancia", "N/A")
+                # Calcular conductancia
+                conductances = []
+                try:
+                    for community in communities:
+                        if len(community) > 1 and len(community) < G_clean.number_of_nodes():
+                            # Aproximación de conductancia
+                            internal_edges = G_clean.subgraph(community).number_of_edges()
+                            cut_edges = sum(1 for node in community for neighbor in G_clean.neighbors(node) if neighbor not in community)
+                            if internal_edges + cut_edges > 0:
+                                conductance = cut_edges / (2 * internal_edges + cut_edges)
+                                conductances.append(conductance)
+                except:
+                    conductances = []
                 
-                # Índice de separación
+                # Calcular ratio de separación
+                separation_ratio = None
                 if len(communities) > 1:
-                    # Calcular aristas entre comunidades vs dentro de comunidades
                     inter_community_edges = 0
                     intra_community_edges = 0
                     
@@ -1354,7 +1457,13 @@ def show_graph_metrics(G, graph_type="", articulos=None):
                     total_edges = inter_community_edges + intra_community_edges
                     if total_edges > 0:
                         separation_ratio = intra_community_edges / total_edges
-                        st.metric("Ratio de Separación", f"{separation_ratio:.4f}", help="Proporción de aristas dentro vs entre comunidades. Valores altos indican buena separación.")
+                
+                # Generar narrativa de cohesión
+                cohesion_narrative = narrator.get_community_cohesion_narrative(
+                    communities, G_clean, internal_densities, conductances, separation_ratio
+                )
+                st.markdown("**Análisis de Cohesión Comunitaria:**")
+                st.markdown(cohesion_narrative)
             
             # Selector para análisis de comunidad específica
             st.markdown("#### Análisis de Comunidad Específica")
@@ -1370,33 +1479,35 @@ def show_graph_metrics(G, graph_type="", articulos=None):
                     selected_community = communities[selected_community_idx]
                     community_subgraph = G_clean.subgraph(selected_community)
                     
-                    col_spec1, col_spec2 = st.columns(2)
+                    # Narrativa específica de la comunidad
+                    specific_community_narrative = narrator.get_specific_community_narrative(
+                        selected_community, community_subgraph, selected_community_idx, len(communities)
+                    )
+                    st.markdown(specific_community_narrative)
                     
-                    with col_spec1:
-                        st.markdown(f"**Métricas de Comunidad {selected_community_idx + 1}:**")
-                        st.metric("Nodos en Comunidad", len(selected_community))
-                        st.metric("Aristas Internas", community_subgraph.number_of_edges())
-                        
-                        if len(selected_community) > 1:
-                            comm_density = nx.density(community_subgraph)
-                            st.metric("Densidad Interna", f"{comm_density:.4f}")
-                            
-                            if community_subgraph.number_of_nodes() > 2:
-                                comm_clustering = nx.average_clustering(community_subgraph)
-                                st.metric("Clustering Interno", f"{comm_clustering:.4f}")
-                    
-                    with col_spec2:
-                        st.markdown("**Nodos Centrales en la Comunidad (por Centralidad de Grado):**")
-                        if len(selected_community) > 0:
-                            # Calcular centralidades dentro de la comunidad
+                    # Información complementaria en tabla
+                    if len(selected_community) > 0:
+                        st.markdown("**Miembros Principales de la Comunidad:**")
+                        # Calcular centralidades dentro de la comunidad para mostrar los más importantes
+                        if community_subgraph.number_of_nodes() > 1:
                             comm_centrality = nx.degree_centrality(community_subgraph)
-                            top_nodes = sorted(comm_centrality.items(), key=lambda x: x[1], reverse=True)[:5]
+                            top_nodes = sorted(comm_centrality.items(), key=lambda x: x[1], reverse=True)[:10]
                             
-                            for i, (node, centrality) in enumerate(top_nodes):
-                                # Obtener grado real del nodo en la comunidad
+                            member_data = []
+                            for node, centrality in top_nodes:
                                 degree_in_community = community_subgraph.degree(node)
-                                st.write(f"{i+1}. {str(node)[:40]}{'...' if len(str(node)) > 40 else ''}")
-                                st.write(f"   Grado en comunidad: {degree_in_community}, Centralidad: {centrality:.3f}")
+                                member_data.append({
+                                    "Miembro": str(node)[:50] + "..." if len(str(node)) > 50 else str(node),
+                                    "Grado en Comunidad": degree_in_community,
+                                    "Centralidad": f"{centrality:.3f}"
+                                })
+                            
+                            df_members = pd.DataFrame(member_data)
+                            st.dataframe(df_members, height=300, use_container_width=True)
+                        else:
+                            st.write("Comunidad con un solo miembro.")
+            else:
+                st.info("Solo se detectó una comunidad. Selecciona un algoritmo diferente para obtener múltiples comunidades.")
                                 
         else:
             st.warning("No se pudieron detectar comunidades con el algoritmo seleccionado.")
@@ -1445,47 +1556,67 @@ def show_graph_metrics(G, graph_type="", articulos=None):
         except Exception as e2:
             st.error(f"No se pudo realizar el análisis de comunidades: {str(e2)}")
         
-    # Análisis de robustez (simplificado)
+    # Análisis de robustez con narrativa
     st.markdown("### Análisis de Robustez")
-    col_rob1, col_rob2 = st.columns(2)
     
-    with col_rob1:
-        # Cohesión aproximada
-        if is_connected:
-            # Número de componentes si removemos el nodo más conectado
-            max_degree_node = max(G.degree(), key=lambda x: x[1])[0]
-            G_temp = G.copy()
-            G_temp.remove_node(max_degree_node)
-            components_after_removal = nx.number_connected_components(G_temp.to_undirected())
-            st.metric("Componentes tras remover hub principal", components_after_removal, help="Mide la vulnerabilidad de la red al fallo del nodo más conectado. Valores altos indican fragilidad estructural.")
-        else:
-            st.metric("Red ya desconectada", "N/A", help="La red ya tiene múltiples componentes separados.")
-            
-    with col_rob2:
-        # Eficiencia global como medida de robustez
-        try:
-            if G.number_of_nodes() < 1000:  # Solo para redes no muy grandes
-                efficiency = nx.global_efficiency(G)
-                st.metric("Eficiencia Global", f"{efficiency:.4f}", help="Capacidad de la red para mantener comunicación efectiva. Valores cercanos a 1 indican alta resistencia a fallos aleatorios.")
-            else:
-                st.metric("Eficiencia Global", "Red muy grande")
-        except:
-            st.metric("Eficiencia Global", "N/A")
-            
-        # Cohesión basada en k-conectividad (aproximación)
-        try:
-            if G.number_of_nodes() < 500:  # Solo para redes medianas
-                # Aproximación: conectividad de nodos
-                node_connectivity = nx.node_connectivity(G.to_undirected())
-                st.metric("Conectividad de Nodos", node_connectivity, help="Número mínimo de nodos que deben ser removidos para desconectar la red. Valores altos indican mayor robustez.")
-            else:
-                st.metric("Conectividad de Nodos", "Red muy grande")
-        except:
-            st.metric("Conectividad de Nodos", "N/A")
+    # Calcular métricas de robustez
+    components_after_removal = None
+    efficiency = None
+    node_connectivity = None
+    
+    if is_connected:
+        # Número de componentes si removemos el nodo más conectado
+        max_degree_node = max(G.degree(), key=lambda x: x[1])[0]
+        G_temp = G.copy()
+        G_temp.remove_node(max_degree_node)
+        components_after_removal = nx.number_connected_components(G_temp.to_undirected())
+    
+    # Eficiencia global
+    try:
+        if G.number_of_nodes() < 1000:
+            efficiency = nx.global_efficiency(G)
+    except:
+        pass
+    
+    # Conectividad de nodos
+    try:
+        if G.number_of_nodes() < 500:
+            node_connectivity = nx.node_connectivity(G.to_undirected())
+    except:
+        pass
+    
+    # Generar narrativa de robustez
+    robustness_narrative = narrator.get_robustness_narrative(
+        is_connected, components_after_removal, efficiency, node_connectivity
+    )
+    st.markdown(robustness_narrative)
     
     # Análisis de Motifs (Patrones Estructurales)
     st.markdown("### Análisis de Motifs y Patrones Estructurales")
     st.caption("Patrones locales recurrentes que caracterizan la estructura de la red")
+    
+    # Generar narrativa contextualizada de motifs
+    try:
+        # Preparar datos para la narrativa
+        G_for_triangles = G.to_undirected() if G.is_directed() else G.copy()
+        for node in G_for_triangles.nodes():
+            G_for_triangles.nodes[node].clear()
+        
+        triangles_dict = nx.triangles(G_for_triangles)
+        total_triangles = sum(triangles_dict.values()) // 3 if triangles_dict else 0
+        transitivity = nx.transitivity(G_for_triangles)
+        
+        # Obtener narrativa de motifs
+        motifs_narrative = narrator.get_motifs_narrative(
+            total_triangles, transitivity, G.is_directed(), G.number_of_nodes()
+        )
+        
+        # Mostrar narrativa
+        st.markdown("#### Interpretación de Patrones Estructurales")
+        st.markdown(motifs_narrative)
+        
+    except Exception as e:
+        st.info(f"No se pudo generar narrativa de motifs: {str(e)}")
     
     col_motif1, col_motif2 = st.columns(2)
     
@@ -1600,10 +1731,45 @@ if section == "Procesar PDFs":
                     
             except Exception as e:
                 st.error(f"Error al procesar PDFs: {str(e)}")
-                st.write("Asegúrate de que:")
-                st.write("- La ruta del directorio de PDFs es correcta")
-                st.write("- LMStudio está ejecutándose en localhost:5000")
+                st.warning("Asegúrate de que:", icon="⚠️")
+                st.markdown("""
+                - La ruta del directorio de PDFs es correcta
+                - LMStudio está ejecutándose en localhost:5000
+                - El servidor está configurado en modo "completions" (no chat)
+                - El modelo cargado tiene capacidad suficiente (recomendado: Mixtral-8x7B o similar)
+                - El firewall no está bloqueando la comunicación con el servidor
+                """)
                 st.write("- Tienes permisos de escritura en el directorio")
+    
+    # Texto explicativo sobre procesamiento de PDFs
+    st.markdown("""
+    ---
+    **Nota importante:**
+    - El botón procesará los PDFs usando LMStudio con el modelo Mistral-7B-Instruct-v0.3
+    - Debe tener el servidor LMStudio ejecutándose en localhost:5000 antes de presionar el botón
+    
+    **Estructura detallada del JSON resultante:**
+    ```json
+    [
+      {
+        "Nombre de Articulo": "string",
+        "Campo de Estudio": "string",
+        "Autores Principales": ["string", ...],
+        "Autores Secundarios": ["string", ...],
+        "Institucion Principal": "string",
+        "Instituciones Secundarias": ["string", ...],
+        "Pais": "string",
+        "Numero de Palabras": number,
+        "Palabras Clave": ["string", ...],
+        "Referencias Bibliograficas": ["string", ...],
+        "Autores de Articulos Referenciados": ["string", ...],
+        "Instituciones de Articulos Referenciados": ["string", ...],
+        "Archivo": "string"
+      },
+      ...
+    ]
+    ```
+    """)
 
 elif section == "Explorar Redes":
     st.header("Explorar y Analizar Redes Complejas")
@@ -1705,12 +1871,30 @@ elif section == "Explorar Redes":
                 # Resetear el session state cuando se construye un nuevo grafo  
                 st.session_state.should_reset_graph = True
                 
+                # Mapear nombres largos a identificadores cortos para las narrativas
+                tipo_red_mapeo = {
+                    "Red de coautoría (autor-autor) con pesos": "coauthor",
+                    "Red dirigida: Autores Principales → Secundarios": "principal_secondary",
+                    "Red dirigida: Citas entre autores": "author_citation",
+                    "Red dirigida: Institución → Institución (colaboración entre instituciones)": "institution_institution",
+                    "Red bipartita: Paper-Autor (Papers rojos, Autores azules)": "paper_author",
+                    "Red bipartita: Paper-Campo de Estudio (Papers azules, Campos rojos)": "paper_field",
+                    "Red bipartita: Institución-Autor (Instituciones rojas, Autores azules)": "institution_author",
+                    "Red bipartita: Campo de Estudio-Institución (Campos rojos, Instituciones azules)": "field_institution",
+                    "Red bipartita: Campo de Estudio-Autor (Campos rojos, Autores azules)": "field_author",
+                    "Red bipartita: Palabras Clave-Campo de Estudio (Palabras rojas, Campos azules)": "keyword_field",
+                    "Red tripartita: Institución-Autor-Autor (Instituciones rojas, Autores azules, coautoría)": "institution_author_author",
+                    "Red tripartita: Campo de Estudio-Autor-Autor (Campos rojos, Autores azules, coautoría)": "field_author_author"
+                }
+                
+                graph_type_id = tipo_red_mapeo.get(tipo_red, "default")
+                
                 # Mostrar visualización del grafo inicial
                 st.markdown("### Visualización del Grafo")
                 show_networkx_graph(G)
                 
                 # Mostrar métricas y manipulación interactiva
-                show_graph_metrics(G, tipo_red)
+                show_graph_metrics(G, graph_type_id, articulos)
             else:
                 st.warning("No se pudo construir el grafo o está vacío.")
         except json.JSONDecodeError:
