@@ -18,9 +18,6 @@ def show_intro():
     3. **Exploración de grafos:** Selecciona el tipo de red que deseas visualizar y navega por las conexiones entre autores, instituciones, campos de estudio y palabras clave.
     4. **Visualización interactiva:** Observa los grafos, identifica comunidades y explora las relaciones de colaboración de manera dinámica.
     
-    Este sistema está en constante desarrollo. A medida que avancemos, iremos incorporando nuevas funcionalidades y tipos de análisis para enriquecer la experiencia.
-    
-    ---
     
     Te invitamos a comenzar cargando tus datos y explorando las redes de colaboración científica. ¡Descubre el entramado de la ciencia cubana y encuentra nuevas perspectivas para tu investigación!
     """)

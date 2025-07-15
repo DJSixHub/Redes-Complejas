@@ -1,5 +1,4 @@
 
-
 import streamlit as st
 import pandas as pd
 import networkx as nx
@@ -17,6 +16,24 @@ import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 
 def autores_tab(articulos):
+    # --- Type check to prevent 'int' object is not iterable error ---
+    if not isinstance(articulos, list):
+        st.error(f"Error: 'articulos' is not a list. Type: {type(articulos)}, Value: {articulos}")
+        return
+    def build_community_author_institution_graph(comm_nodes, autor_info, color):
+        import networkx as nx
+        G_bip = nx.Graph()
+        # Añadir autores
+        for n in comm_nodes:
+            G_bip.add_node(n, color=color, node_type='author')
+        # Añadir instituciones y aristas autor-institución
+        for n in comm_nodes:
+            insts = autor_info.get(n, {}).get('instituciones', [])
+            for inst in insts:
+                if inst not in G_bip:
+                    G_bip.add_node(inst, color="#FFD700", node_type='institution')
+                G_bip.add_edge(n, inst)
+        return G_bip
     # st.set_page_config(layout="wide")  # Removed: should only be called once at the top level
     st.subheader("Exploración de Autores")
     opciones = [
@@ -42,6 +59,13 @@ def autores_tab(articulos):
                 data['title'] = txt
         return G
 
+    # --- Obtener todos los autores presentes en el JSON, aunque no tengan colaboraciones ---
+    autores_json = set()
+    for art in articulos:
+        for autor in art.get('Autores Principales', []):
+            autores_json.add(autor)
+        for autor in art.get('Autores Secundarios', []):
+            autores_json.add(autor)
     if tipo_red == "Red de Colaboración Autor-Autor":
         st.markdown("""
         <b>En esta red</b>, cada nodo representa un <b>autor</b> y dos autores están conectados si han colaborado juntos en al menos un artículo.<br>
@@ -51,6 +75,10 @@ def autores_tab(articulos):
         <i>Ejemplo:</i> si ves una arista entre Ana y Luis con peso <b>3</b> y color rojizo, significa que han coescrito <b>3 artículos</b> y es una de las colaboraciones más fuertes de la red. Si pasas el mouse sobre Ana y ves <b>"Ana (12 conexiones)"</b>, significa que Ana ha colaborado con <b>12 autores diferentes</b>.
         """, unsafe_allow_html=True)
         G = build_coauthor_graph(articulos)
+        # Añadir explícitamente los nodos huérfanos
+        for autor in autores_json:
+            if autor not in G:
+                G.add_node(autor, node_type='author')
         G = clean_edge_titles_plaintext(G)
     elif tipo_red == "Red de Citaciones":
         st.markdown("""
@@ -127,7 +155,13 @@ def autores_tab(articulos):
         )
         resumen = None
         if tipo_red == "Red de Colaboración Autor-Autor":
+            # Detectar autores sin colaboraciones según el JSON, no solo el grafo
+            autores_sin_colab = [autor for autor in autores_json if G.degree(autor) == 0]
             resumen = resumen_narrativo_autor_autor(G)
+            if autores_sin_colab:
+                resumen += f"<br><b>Autores sin colaboraciones:</b> Hay {len(autores_sin_colab)} autores que no han colaborado con ningún otro en la red."
+            else:
+                resumen += "<br><b>Autores sin colaboraciones:</b> Todos los autores han colaborado al menos una vez."
         elif tipo_red == "Red de Citaciones":
             resumen = resumen_narrativo_citaciones(G)
         elif tipo_red == "Red de Autores Principales-Secundarios":
@@ -140,12 +174,7 @@ def autores_tab(articulos):
             st.subheader("Resumen de la Red")
             # Elimina referencias a desconexiones y agrega autores sin colaboraciones
             resumen = resumen.replace('desconectad', '').replace('aislad', '').replace('fragmentar', '').replace('impacto', '').replace('Impacto', '')
-            if tipo_red == "Red de Colaboración Autor-Autor":
-                autores_sin_colab = [n for n, d in G.degree() if d == 0]
-                if autores_sin_colab:
-                    resumen += f"<br><b>Autores sin colaboraciones:</b> Hay {len(autores_sin_colab)} autores que no han colaborado con nadie en la red."
-                else:
-                    resumen += "<br><b>Autores sin colaboraciones:</b> Todos los autores han colaborado al menos una vez."
+            # Ya se muestra la cantidad de autores sin colaboraciones arriba, no repetir aquí
             st.markdown(resumen, unsafe_allow_html=True)
 
         # --- Nueva sección: Tabla resumen de autores (usando estructura real del JSON) ---
@@ -319,12 +348,26 @@ def autores_tab(articulos):
                 if campo_princ:
                     resumen.append(f"Su campo de estudio principal es <b>{campo_princ}</b>.")
                 # 7. Importancia y posición
-                if total_colab > 10 or inst_count > 7 or campos_count > 7:
-                    resumen.append("<b>Importancia:</b> Su perfil destaca por su capacidad de conectar autores, instituciones y campos, contribuyendo a la cohesión y diversidad de la red científica.")
-                elif total_colab <= 2 and inst_count <= 2:
-                    resumen.append("<b>Importancia:</b> Perfil periférico, con baja influencia estructural en la red.")
-                else:
-                    resumen.append("<b>Importancia:</b> Perfil relevante, con contribuciones notables en su entorno de colaboración.")
+                # Se elimina la línea de 'Importancia:'
+                # Calcular citaciones recibidas por el autor
+                citaciones_recibidas = 0
+                for art, _ in info['articulos']:
+                    id_art = art.get('Nombre de Articulo') or art.get('Archivo')
+                    for otro_art in articulos:
+                        if otro_art is art:
+                            continue
+                        refs = otro_art.get('Referencias Bibliograficas', [])
+                        if id_art and id_art in refs:
+                            citaciones_recibidas += 1
+                resumen.append(f"<b>Citaciones recibidas:</b> {citaciones_recibidas}")
+                # Comunidades a las que pertenece el autor
+                comunidades_autor = []
+                if 'communities' in locals():
+                    for i, comm in enumerate(communities):
+                        if autor_sel in comm:
+                            comunidades_autor.append(f"Comunidad {i+1}")
+                if comunidades_autor:
+                    resumen.append(f"<b>Comunidades:</b> {', '.join(comunidades_autor)}")
                 st.markdown("<br>".join(resumen), unsafe_allow_html=True)
                 # --- Tables: left column ---
                 if info['articulos']:
@@ -421,7 +464,7 @@ def autores_tab(articulos):
             if top_phrases:
                 from wordcloud import WordCloud
                 import matplotlib.pyplot as plt
-                wc = WordCloud(width=800, height=300, background_color='white', collocations=False, prefer_horizontal=1.0)
+                wc = WordCloud(width=800, height=300, background_color='white', collocations=False, prefer_horizontal=0.5)
                 # wordcloud requiere un dict {frase: peso}
                 wc.generate_from_frequencies(dict(top_phrases))
                 st.markdown("<div style='text-align:center'><b>Línea de trabajo:</b></div>", unsafe_allow_html=True)
@@ -563,22 +606,8 @@ def autores_tab(articulos):
                         for n in subG.nodes:
                             subG.nodes[n]["color"] = color
                     else:
-                        # Grafo tripartito: autores + instituciones
-                        subG = nx.Graph()
-                        # Añadir autores
-                        for n in comm_nodes:
-                            subG.add_node(n, color=color)
-                        # Añadir instituciones y enlaces
-                        for n in comm_nodes:
-                            insts = autor_info.get(n, {}).get('instituciones', [])
-                            for inst in insts:
-                                subG.add_node(inst, color="#FFD700")  # amarillo
-                                subG.add_edge(n, inst)
-                        # Añadir enlaces de coautoría dentro de la comunidad
-                        for u in comm_nodes:
-                            for v in comm_nodes:
-                                if u != v and G.has_edge(u, v):
-                                    subG.add_edge(u, v)
+                        # Grafo bipartito: autores + instituciones (solo aristas autor-institución)
+                        subG = build_community_author_institution_graph(comm_nodes, autor_info, color)
                     # Visualización, tabla y narrativa en columnas
                     col_left, col_right = st.columns(2, gap="large")
                     with col_left:
@@ -595,19 +624,34 @@ def autores_tab(articulos):
                         # Tabla de autores
                         tabla_autores = []
                         for n in comm_nodes:
-                            articulos = len(autor_info.get(n, {}).get('articulos', []))
+                            num_articulos = len(autor_info.get(n, {}).get('articulos', []))
                             vecinos = set(G.neighbors(n)) if n in G else set()
                             fuera = len([v for v in vecinos if v not in comm_nodes])
                             dentro = len([v for v in vecinos if v in comm_nodes])
                             tabla_autores.append({
                                 'Autor': n,
-                                'Artículos': articulos,
+                                'Artículos': num_articulos,
                                 'Colaboraciones dentro': dentro,
                                 'Colaboraciones fuera': fuera
                             })
+                            
                         st.markdown("**Autores de la comunidad:**")
                         df_autores = pd.DataFrame(tabla_autores)
                         st.dataframe(df_autores, hide_index=True)
+                        
+                                                # Tabla de papers de la comunidad seleccionada
+                        papers_comunidad = set()
+                        for n in comm_nodes:
+                            for art, _ in autor_info.get(n, {}).get('articulos', []):
+                                id_art = art.get('Nombre de Articulo') or art.get('Archivo')
+                                if id_art:
+                                    papers_comunidad.add(id_art)
+                        if papers_comunidad:
+                            st.markdown("**Artículos producidos por la comunidad seleccionada:**")
+                            df_papers_com = pd.DataFrame({'Artículo': sorted(papers_comunidad)})
+                            st.dataframe(df_papers_com, hide_index=True)
+
+
                     with col_right:
                         # Nube de palabras de la comunidad (solo con wordcloud de Python)
                         palabras_com = []
@@ -748,6 +792,15 @@ def autores_tab(articulos):
                             texto += f"Además, mantiene <b>vínculos externos</b> con <b>{len(campos_fuera)}</b> <b>campos de conocimiento</b> (<b>{campos_fuera_nombres}</b>), lo que la coloca en la posición <b>{pos_camp_fuera}</b> de <b>{len(communities)}</b> en conexiones externas. "
                         else:
                             texto += "Por otro lado, no mantiene vínculos temáticos externos, lo que la hace más aislada en ese aspecto. "
+
+                        # --- Métricas de conectividad y promedio de papers por comunidad ---
+                        densidad = nx.density(G.subgraph(comm_nodes))
+                        clustering = nx.average_clustering(G.subgraph(comm_nodes)) if len(comm_nodes) > 2 else 0
+                        texto += f"<br><b>Conectividad:</b> La <b>densidad de conexiones</b> es de <b>{densidad:.2f}</b> (donde 1 indica una comunidad completamente conectada). "
+                        texto += f"El <b>coeficiente de agrupamiento</b> promedio es <b>{clustering:.2f}</b>, lo que sugiere {'una fuerte tendencia a formar cliques y subgrupos' if clustering > 0.5 else 'una conectividad más dispersa y menos cohesiva'} entre los autores. "
+                        texto += f"<br><b>Promedio de artículos por autor:</b> <b>{promedio_papers:.2f}</b>. "
+                        
+                        
 
                         st.markdown(texto, unsafe_allow_html=True)
 

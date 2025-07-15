@@ -1,3 +1,28 @@
+# Red bipartita: instituciones y autores, con enlaces entre autores si comparten institución
+def build_institution_author_author_graph(articulos):
+    import networkx as nx
+    G = nx.Graph()
+    # Añadir nodos de instituciones y autores
+    for art in articulos:
+        insts = [art.get('Institucion Principal', '')] + art.get('Instituciones Secundarias', [])
+        autores = art.get('Autores Principales', []) + art.get('Autores Secundarios', [])
+        insts = [i for i in insts if i]
+        autores = [a for a in autores if a]
+        # Añadir nodos
+        for inst in insts:
+            G.add_node(inst, node_type='institution', color='#FF6B6B')
+        for autor in autores:
+            G.add_node(autor, node_type='author', color='#4A90E2')
+        # Enlaces institución-autor
+        for inst in insts:
+            for autor in autores:
+                G.add_edge(inst, autor)
+        # Enlaces autor-autor si comparten institución en este artículo
+        for i in range(len(autores)):
+            for j in range(i+1, len(autores)):
+                a1, a2 = autores[i], autores[j]
+                G.add_edge(a1, a2, shared_institution=True)
+    return G
 # Alias para compatibilidad con exploracion_autores.py
 def build_author_field_graph(articulos):
     return build_field_author_graph(articulos)
@@ -26,28 +51,20 @@ def build_coauthor_graph(articulos):
     return G
 
 def build_institution_institution_graph(articulos):
-    G = nx.DiGraph()
+    import networkx as nx
+    G = nx.Graph()
+    # Reunir todas las instituciones de cada artículo (principal y secundarias)
     for art in articulos:
-        inst_principal = art.get('Institucion Principal', None)
-        inst_secundarias = art.get('Instituciones Secundarias', [])
-        todas = set()
-        if inst_principal:
-            todas.add(inst_principal)
-        todas.update(inst_secundarias)
-        for a in todas:
-            for b in todas:
-                if a != b:
-                    if G.has_edge(a, b):
-                        G[a][b]['weight'] += 1
-                    else:
-                        G.add_edge(a, b, weight=1)
-        if inst_principal and inst_secundarias:
-            for inst_sec in inst_secundarias:
-                if inst_principal != inst_sec:
-                    if G.has_edge(inst_principal, inst_sec):
-                        G[inst_principal][inst_sec]['principal_secundaria'] = G[inst_principal][inst_sec].get('principal_secundaria', 0) + 1
-                    else:
-                        G.add_edge(inst_principal, inst_sec, weight=1, principal_secundaria=1)
+        instituciones = [art.get('Institucion Principal', None)] + art.get('Instituciones Secundarias', [])
+        instituciones = [i for i in instituciones if i]
+        n = len(instituciones)
+        for i in range(n):
+            for j in range(i+1, n):
+                a, b = instituciones[i], instituciones[j]
+                if G.has_edge(a, b):
+                    G[a][b]['weight'] += 1
+                else:
+                    G.add_edge(a, b, weight=1)
     for node in G.nodes():
         G.nodes[node]['node_type'] = 'institution'
         G.nodes[node]['color'] = '#4A90E2'

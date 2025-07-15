@@ -1,3 +1,214 @@
+# --- Resúmenes narrativos para instituciones ---
+def resumen_narrativo_institucion_institucion(G):
+    import networkx as nx
+    instituciones = [n for n, d in G.nodes(data=True) if d.get('node_type') == 'institution']
+    if not instituciones:
+        return "No se registran relaciones entre instituciones en esta red."
+    n_inst = len(instituciones)
+    n_rel = G.number_of_edges()
+    grados = dict(G.degree(instituciones))
+    grado_medio = sum(grados.values()) / n_inst if n_inst else 0
+    inst_destacadas = sorted(grados.items(), key=lambda x: -x[1])[:3]
+    def lista_con_y(nombres):
+        if len(nombres) > 1:
+            return ', '.join(nombres[:-1]) + ' y ' + nombres[-1]
+        elif nombres:
+            return nombres[0]
+        else:
+            return ''
+    nombres_destacadas = lista_con_y([f"<b>{a}</b> ({grados[a]} colaboraciones)" for a, _ in inst_destacadas])
+    max_inst = inst_destacadas[0][0]
+    max_colab = grados[max_inst]
+    # Nodos puente (alta intermediación)
+    betweenness = nx.betweenness_centrality(G)
+    nodos_puente = sorted(betweenness.items(), key=lambda x: -x[1])[:2]
+    # Centralidad de vector propio
+    eigen = nx.eigenvector_centrality_numpy(G)
+    nodos_influencia = sorted(eigen.items(), key=lambda x: -x[1])[:2]
+    # Nodos críticos (articulación)
+    if G.is_directed():
+        es_conectada = nx.is_weakly_connected(G)
+        componentes = list(nx.weakly_connected_components(G))
+        criticos = list(nx.articulation_points(G.to_undirected())) if es_conectada else []
+    else:
+        es_conectada = nx.is_connected(G)
+        componentes = list(nx.connected_components(G))
+        criticos = list(nx.articulation_points(G)) if es_conectada else []
+    red_continua = len(componentes) == 1
+    texto = f"Esta red de colaboración institucional está formada por {n_inst} instituciones y {n_rel} vínculos. En promedio, cada institución colabora con {grado_medio:.1f} otras. "
+    texto += f"Destacan {nombres_destacadas} como las más activas, siendo <b>{max_inst}</b> la que ha tejido la red más amplia con {max_colab} conexiones. "
+    if red_continua:
+        texto += "La red es continua, permitiendo que la información y los proyectos fluyan sin barreras entre la mayoría de las instituciones. "
+    else:
+        texto += f"Existen {len(componentes)} grupos de instituciones que colaboran entre sí, pero no todas están conectadas, lo que sugiere la presencia de comunidades o líneas de investigación independientes. "
+    if nodos_puente:
+        n, _ = nodos_puente[0]
+        if n in G:
+            G_temp = G.copy()
+            G_temp.remove_node(n)
+            if G.is_directed():
+                componentes_temp = list(nx.weakly_connected_components(G_temp))
+            else:
+                componentes_temp = list(nx.connected_components(G_temp))
+            mayor = max(componentes_temp, key=len)
+            desconectados = [a for a in G.nodes if a not in mayor]
+            if len(desconectados) > 0:
+                texto += f"Si se eliminara a la institución <b>{n}</b>, estas {len(desconectados)} instituciones dejarían de pertenecer al mayor grupo de colaboración. "
+    if criticos:
+        texto += f"La eliminación de instituciones como {lista_con_y([f'<b>{n}</b>' for n in criticos])} podría aislar partes de la red y dificultar la colaboración entre centros. "
+    if nodos_influencia:
+        texto += f"La influencia y el flujo de proyectos se concentran en nodos como {lista_con_y([f'<b>{n}</b>' for n, _ in nodos_influencia])}. "
+    texto += "En conjunto, la red muestra tanto la fortaleza de las colaboraciones como la importancia de la conectividad institucional para el avance científico."
+    return texto
+
+def resumen_narrativo_institucion_campo(G):
+    import networkx as nx
+    instituciones = [n for n, d in G.nodes(data=True) if d.get('node_type') == 'institution']
+    campos = [n for n, d in G.nodes(data=True) if d.get('node_type') == 'field']
+    if not instituciones or not campos:
+        return "No se registran relaciones entre instituciones y campos de estudio en esta red."
+    diversidad = {i: len(list(G.neighbors(i))) for i in instituciones}
+    inst_mas_diversa = max(diversidad, key=diversidad.get)
+    max_campo = diversidad[inst_mas_diversa]
+    campo_central = max(campos, key=lambda c: G.degree(c))
+    n_inst = len(instituciones)
+    n_campos = len(campos)
+    conexiones = G.number_of_edges()
+    media_campos = sum(diversidad.values()) / n_inst if n_inst else 0
+    def lista_con_y(nombres):
+        if len(nombres) > 1:
+            return ', '.join(nombres[:-1]) + ' y ' + nombres[-1]
+        elif nombres:
+            return nombres[0]
+        else:
+            return ''
+    texto = f"La red institución-campo está formada por {n_inst} instituciones y {n_campos} campos de estudio, con {conexiones} vínculos. En promedio, cada institución participa en {media_campos:.1f} campo{'s' if media_campos != 1 else ''}. "
+    texto += f"La institución más versátil es <b>{inst_mas_diversa}</b>, que colabora en {max_campo} áreas distintas. El campo más concurrido es <b>{campo_central}</b>, con {G.degree(campo_central)} instituciones vinculadas. "
+    campos_versatil = list(G.neighbors(inst_mas_diversa))
+    if len(campos_versatil) > 1:
+        texto += f" Esta institución conecta los campos de {lista_con_y([str(c) for c in campos_versatil])}. "
+    criticos = [n for n in nx.articulation_points(G) if n in instituciones] if nx.is_connected(G) else []
+    if criticos:
+        n = criticos[0]
+        G_temp = G.copy()
+        G_temp.remove_node(n)
+        componentes_temp = list(nx.connected_components(G_temp))
+        mayor = max(componentes_temp, key=len)
+        desconectados = [a for a in G.nodes if a not in mayor]
+        if len(desconectados) > 0:
+            texto += f"Si se eliminara a la institución <b>{n}</b>, quedarían desconectados {len(desconectados)} nodos del mayor grupo de colaboración. "
+    texto += "La estructura pone de relieve la importancia de la diversidad temática institucional y de los centros que conectan distintas áreas del conocimiento."
+    return texto
+
+def resumen_narrativo_institucion_autor(G):
+    import networkx as nx
+    instituciones = [n for n, d in G.nodes(data=True) if d.get('node_type') == 'institution']
+    autores = [n for n, d in G.nodes(data=True) if d.get('node_type') == 'author']
+    if not instituciones or not autores:
+        return "No se registran relaciones entre instituciones y autores en esta red."
+    colaboracion = {i: len(list(G.neighbors(i))) for i in instituciones}
+    inst_mas_colab = max(colaboracion, key=colaboracion.get)
+    max_autores = colaboracion[inst_mas_colab]
+    autor_central = max(autores, key=lambda a: G.degree(a))
+    n_inst = len(instituciones)
+    n_autores = len(autores)
+    conexiones = G.number_of_edges()
+    media_autores = sum(colaboracion.values()) / n_inst if n_inst else 0
+    def lista_con_y(nombres):
+        if len(nombres) > 1:
+            return ', '.join(nombres[:-1]) + ' y ' + nombres[-1]
+        elif nombres:
+            return nombres[0]
+        else:
+            return ''
+    texto = f"La red institución-autor está formada por {n_inst} instituciones y {n_autores} autores, con {conexiones} vínculos. En promedio, cada institución colabora con {media_autores:.1f} autores. "
+    texto += f"La institución con mayor alcance es <b>{inst_mas_colab}</b>, que ha trabajado con {max_autores} autores distintos. El autor más vinculado es <b>{autor_central}</b>, con {G.degree(autor_central)} instituciones asociadas. "
+    criticos = [n for n in nx.articulation_points(G) if n in instituciones] if nx.is_connected(G) else []
+    if criticos:
+        n = criticos[0]
+        G_temp = G.copy()
+        G_temp.remove_node(n)
+        componentes_temp = list(nx.connected_components(G_temp))
+        mayor = max(componentes_temp, key=len)
+        desconectados = [a for a in G.nodes if a not in mayor]
+        if len(desconectados) > 0:
+            texto += f"Si se eliminara a la institución <b>{n}</b>, quedarían desconectados {len(desconectados)} nodos del mayor grupo de colaboración. "
+    texto += "La estructura pone de manifiesto la importancia de las instituciones que conectan diferentes autores y la riqueza de las colaboraciones científicas."
+    return texto
+
+def resumen_narrativo_institucion_autor_autor(G):
+    import networkx as nx
+    instituciones = [n for n, d in G.nodes(data=True) if d.get('node_type') == 'institution']
+    autores = [n for n, d in G.nodes(data=True) if d.get('node_type') == 'author']
+    if not instituciones or not autores:
+        return "No se registran relaciones entre instituciones y pares de autores en esta red."
+    # Se asume que los autores están conectados si colaboran en la misma institución
+    colaboracion = {i: len(list(G.neighbors(i))) for i in instituciones}
+    inst_mas_colab = max(colaboracion, key=colaboracion.get)
+    max_autores = colaboracion[inst_mas_colab]
+    n_inst = len(instituciones)
+    n_autores = len(autores)
+    conexiones = G.number_of_edges()
+    media_autores = sum(colaboracion.values()) / n_inst if n_inst else 0
+    def lista_con_y(nombres):
+        if len(nombres) > 1:
+            return ', '.join(nombres[:-1]) + ' y ' + nombres[-1]
+        elif nombres:
+            return nombres[0]
+        else:
+            return ''
+    texto = f"La red institución-autor-autor está formada por {n_inst} instituciones y {n_autores} autores, con {conexiones} vínculos. En promedio, cada institución conecta a {media_autores:.1f} autores. "
+    texto += f"La institución con mayor colaboración es <b>{inst_mas_colab}</b>, que vincula a {max_autores} autores distintos. "
+    criticos = [n for n in nx.articulation_points(G) if n in instituciones] if nx.is_connected(G) else []
+    if criticos:
+        n = criticos[0]
+        G_temp = G.copy()
+        G_temp.remove_node(n)
+        componentes_temp = list(nx.connected_components(G_temp))
+        mayor = max(componentes_temp, key=len)
+        desconectados = [a for a in G.nodes if a not in mayor]
+        if len(desconectados) > 0:
+            texto += f"Si se eliminara a la institución <b>{n}</b>, quedarían desconectados {len(desconectados)} nodos del mayor grupo de colaboración. "
+    texto += "La estructura pone de relieve el papel de las instituciones como puentes entre pares de autores y la importancia de los centros que facilitan la colaboración científica."
+    return texto
+
+def resumen_narrativo_institucion_institucion_dirigido(G):
+    import networkx as nx
+    instituciones = [n for n, d in G.nodes(data=True) if d.get('node_type') == 'institution']
+    if not instituciones:
+        return "No se registran relaciones dirigidas entre instituciones en esta red."
+    in_deg = dict(G.in_degree(instituciones))
+    out_deg = dict(G.out_degree(instituciones))
+    n_inst = len(instituciones)
+    n_rel = G.number_of_edges()
+    def lista_con_y(nombres):
+        if len(nombres) > 1:
+            return ', '.join(nombres[:-1]) + ' y ' + nombres[-1]
+        elif nombres:
+            return nombres[0]
+        else:
+            return ''
+    inst_principal = max(out_deg, key=out_deg.get)
+    inst_secundaria = max(in_deg, key=in_deg.get)
+    secundarios_max = len(set([u for u, v in G.in_edges(inst_secundaria)]))
+    principales_max = len(set([v for u, v in G.out_edges(inst_principal)]))
+    texto = f"Esta red dirigida revela cómo los roles de liderazgo y apoyo se distribuyen entre las instituciones. <b>{inst_principal}</b> ha liderado más proyectos como principal (<b>{out_deg[inst_principal]}</b> veces, a <b>{principales_max}</b> instituciones), mientras que <b>{inst_secundaria}</b> ha contribuido en numerosas ocasiones como secundaria (<b>{in_deg[inst_secundaria]}</b> veces, por <b>{secundarios_max}</b> instituciones). "
+    # Nodos puente
+    betweenness = nx.betweenness_centrality(G)
+    nodos_puente = sorted(betweenness.items(), key=lambda x: -x[1])[:2]
+    # Centralidad de vector propio
+    eigen = nx.eigenvector_centrality_numpy(G)
+    nodos_influencia = sorted(eigen.items(), key=lambda x: -x[1])[:2]
+    # Nodos críticos
+    criticos = list(nx.articulation_points(G.to_undirected())) if nx.is_weakly_connected(G) else []
+    if nodos_puente:
+        texto += f"Instituciones como {lista_con_y([f'<b>{n}</b>' for n, _ in nodos_puente])} actúan como puentes clave en la red. "
+    if nodos_influencia:
+        texto += f"La influencia y el flujo de proyectos se concentran en nodos como {lista_con_y([f'<b>{n}</b>' for n, _ in nodos_influencia])}. "
+    if criticos:
+        texto += f"La eliminación de instituciones como {lista_con_y([f'<b>{n}</b>' for n in criticos])} podría fragmentar la red y dificultar la colaboración entre centros. "
+    texto += "La red pone de manifiesto la importancia de los roles complementarios y de los vínculos que unen a la comunidad institucional."
+    return texto
 # --- Resúmenes narrativos para grafos Autor-Campo de Estudio y Autor-Institución ---
 def resumen_narrativo_autor_campo(G):
     def lista_con_y(nombres):
